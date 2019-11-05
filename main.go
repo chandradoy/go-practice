@@ -1,4 +1,4 @@
-package onevaluedatabasewithswim
+package main
 
 import (
 	"context"
