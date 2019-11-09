@@ -23,6 +23,7 @@ type Value struct {
 }
 
 func initValue(val int) *Value {
+	log.Println("Initializing value.......")
 	return &Value{
 		number: val,
 	}
@@ -42,7 +43,9 @@ func (n *Value) getValue() (int, int) {
 }
 
 func (n *Value) notifyValue(curVal int, curGeneration int) bool {
+	log.Println("Notifying value....")
 	if curGeneration > n.generation {
+		log.Print("Aquiring Lock.....")
 		n.numMutex.Lock()
 		defer n.numMutex.Unlock()
 		n.generation = curGeneration
@@ -54,6 +57,7 @@ func (n *Value) notifyValue(curVal int, curGeneration int) bool {
 const membersToNotify = 2
 
 func setupCluster(advertiseAddr string, clusterAddr string) (*serf.Serf, error) {
+	log.Println("Broadcast Timeout",serf.DefaultConfig().BroadcastTimeout , "............")
 	conf := serf.DefaultConfig()
 	conf.Init()
 	conf.MemberlistConfig.AdvertiseAddr = advertiseAddr
@@ -73,11 +77,11 @@ func setupCluster(advertiseAddr string, clusterAddr string) (*serf.Serf, error) 
 
 func launchHTTPAPI(db *Value) {
 	go func() {
-		m := mux.NewRouter()
+		m := mux.NewRouter().StrictSlash(true)
 		m.HandleFunc("/get", func(w http.ResponseWriter, r *http.Request) {
 			val, _ := db.getValue()
 			fmt.Fprintf(w, "%v", val)
-		})
+		}).Methods("GET").Schemes()
 		m.HandleFunc("/set/{newVal}", func(w http.ResponseWriter, r *http.Request) {
 			vars := mux.Vars(r)
 			newVal, err := strconv.Atoi(vars["newVal"])
@@ -90,7 +94,7 @@ func launchHTTPAPI(db *Value) {
 			db.setValue(newVal)
 
 			fmt.Fprintf(w, "%v", newVal)
-		})
+		}).Methods("POST")
 		m.HandleFunc("/notify/{curVal}/{curGeneration}", func(w http.ResponseWriter, r *http.Request) {
 			vars := mux.Vars(r)
 			curVal, err := strconv.Atoi(vars["curVal"])
@@ -114,13 +118,14 @@ func launchHTTPAPI(db *Value) {
 					r.URL.Query().Get("notifier"))
 			}
 			w.WriteHeader(http.StatusOK)
-		})
+		}).Methods("GET")
 		log.Fatal(http.ListenAndServe(":8080", m))
 	}()
 }
 
 func getOtherMembers(cluster *serf.Serf) []serf.Member {
 	members := cluster.Members()
+	log.Println("Number of members ",len(members))
 	for i := 0; i < len(members); {
 		if members[i].Name == cluster.LocalMember().Name || members[i].Status != serf.StatusAlive {
 			if i < len(members)-1 {
@@ -180,8 +185,9 @@ func notifyOthers(ctx context.Context, otherMembers []serf.Member, db *Value) {
 }
 
 func main() {
+	fmt.Println("Advertise address :",os.Getenv("ADVERTISE_ADDR"),"Cluster address",os.Getenv("CLUSTER_ADDR"))
 	cluster, err := setupCluster(
-		os.Getenv("ADVERTISE_ADDR"),
+		"172.17.0.2",
 		os.Getenv("CLUSTER_ADDR"))
 	if err != nil {
 		log.Fatal(err)
